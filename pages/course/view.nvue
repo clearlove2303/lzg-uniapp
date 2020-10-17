@@ -1,0 +1,1207 @@
+<template>
+	<view class="wrapper course-view" :style="{height: systemInfo.windowHeight + 'px'}">
+    <view class="statusBar" :style="{height: statusBarHeight + 'px'}"></view>
+    <view class="head">
+      <view class="head-left" @click="goBack">
+        <image src="../../static/img/img-back.png" class="icon-back">
+      </view>
+      <view class="head-middle" :style="{ width: (systemInfo.platform == 'ios' ? 500 : 680) + 'rpx'}">
+        <text class="head-title">{{ course.title | omitString(18) }}</text>
+      </view>
+      <view class="head-right" @click="goWebView" v-if="systemInfo.platform == 'ios'">
+        <text class="head-title">切换</text>
+      </view>
+    </view>
+    <course-video
+      :title="course.title"
+      :srcList="video.play_info"
+      :initialTime="initialTime"
+      :poster="video.cover ? video.cover.url : ''"
+      :showCountDown="showCountDown"
+      :countDown="countDown"
+      autoplay=false
+      color="#3b8bfd"
+      ref="video"
+      @change="playState"></course-video>
+		<view class="swiper-tab">
+      <view v-for="(menuTab, index) in menuTabs" :key="index"
+        :class="['swiper-tab-list', currentTab == index ? 'active' : '']"
+        @click="switchMenu(index)"><text class="swiper-tab-text">{{ menuTab.name }}</text></view>
+    </view>
+    <swiper :current="currentTab" class="swiper-box-list"
+      duration="300" @change="swiperChange" :style="{ height: (systemInfo.windowHeight - statusBarHeight - 285) + 'px' }">
+      <swiper-item class="directory" :style="{ height: (systemInfo.windowHeight - statusBarHeight - 285) + 'px' }">
+        <scroll-view scroll-y="true" @scrolltolower="loading" :style="{ height: (systemInfo.windowHeight - statusBarHeight - 285) + 'px' }">
+          <uni-collapse accordion="true">
+            <chapter-item
+              v-for="(chapter, index) in chapters"
+              :key="index"
+              :open="chapter.open"
+              :title="chapter.title"
+              :chapterTitle="`第` + (index + 1) + `章`"
+              class="chapter-item">
+                <view
+                  class="chapter-sections"
+                  v-for="section in chapter.sections"
+                  :key="section.id"
+                  @click="getVideo(section)">
+                  <image src="../../static/img/icon-play.png" class="icon-play" v-if="sectionId != section.id">
+                  <image src="../../static/img/icon-activePlay.png" class="icon-play" v-else>
+                  <view class="section-right">
+                    <text class="icon-text"
+                    :style="{color: sectionId === section.id ? '#1d8fe2' : '#333333'}">{{ section.title }}</text>
+                    <view v-if=" course.is_buyed == 0 && section.price > 0">
+                      <image src="../../static/img/icon-VIP.png" class="icon-vip"></image>
+                    </view>
+                  </view>
+                </view>
+            </chapter-item>
+          </uni-collapse>
+        </scroll-view>
+      </swiper-item>
+      <swiper-item class="handout">
+        <view class="courseware-box">
+          <text class="course-title">{{ course.year ? course.year : ''}}{{  course.title }}</text>
+          <view class="courseware" @click="goDocument(course.id)">
+            <view>
+              <image src="../../static/img/icon-dow.png" class="icon-kejian">
+            </view>
+            <text class="courseware-text">下载</text>
+          </view>
+        </view>
+        <scroll-view scroll-y="true" @scrolltolower="endLoad" :style="{ height: (systemInfo.windowHeight - statusBarHeight - 310) + 'px' }">
+          <view class="coursewares-item" v-if="coursewares.length > 0">
+            <cache-image v-for="(item, index) in coursewares"
+              :key="index" :imgUrl="item.url"
+              imgResize="cover" @tap="openLightBox(index, coursewares)"
+              class="coursewares-img">
+            </cache-image>
+            <uni-load-more :loadingType="loadingType"></uni-load-more>
+          </view>
+        </scroll-view>
+      </swiper-item>
+      <swiper-item class="introduction">
+        <view class="introduction-top">
+          <view class="introduction-title">
+            <text class="introduction-text">{{ course.title }}</text>
+          </view>
+          <view class="like-box">
+            <view class="like-box-left">
+              <view class="introduction-score">
+                <text class="score-text">评分:</text>
+              </view>
+              <view class="like">
+                <view class="icon-unlike">
+                  <view v-for="i in Array(5)" :key="i">
+                    <image src="../../static/img/icon-aixin.png" class="icon-aixin">
+                  </view>
+                </view>
+              </view>
+              <text class="hints">{{ course.hits }}人学习</text>
+            </view>
+            <image
+              v-if="course.is_buyed == 1"
+              src="../../static/img/icon-download.png"
+              class="icon-download"
+              @click="downloadVideo"></image>
+          </view>
+        </view>
+        <view class="black-space"></view>
+        <view class="introduction-content">
+          <view class="desc-title"><text class="desc-title-text">课程介绍</text></view>
+          <text class="desc">{{ course.description }}</text>
+        </view>
+      </swiper-item>
+    </swiper>
+    <modal
+      :show="modalShow"
+      :noCancel = "true"
+      :title= "dialogTitle"
+      :text="`课程名：${course.year ? course.year : ''}${course.title}`"
+      :textShow="true"
+      confirmText="立即购买"
+      @confirm='confirm'
+      cancelText="取消"
+      @cancel='cancel'></modal>
+	</view>
+</template>
+
+<script>
+import chapterItem from "@/components/data/course/chapter-item.vue";
+import cacheKeys from '@/plugins/cache/keys.js';
+import cacheMethod from "@/plugins/cache/core.js";
+import cacheImage from "@/components/media/cache-image.vue";
+import courseVideo from "@/components/vendor/chunlei-video/chunlei-video.nvue";
+import uniCollapse from "@/components/vendor/uni-collapse.vue";
+import jwt from "@/plugins/jwt/core.js";
+import mixins from "@/mixins/index.js";
+import services from "@/common/service-loader";
+import loc from "@/plugins/loc/core.js";
+import modal from "@/components/custom/modal.nvue";
+
+const Stark = new BroadcastChannel("Avengers");
+const H5Url = getApp().globalData.H5Url;
+const downloadStatus = getApp().globalData.DOWNLOAD_STATUS;
+
+let currentPage = 1,
+  pageCount = null,
+  timer = null,
+  countDownTimer = null,
+  currentSectionId = null,
+  finished = 0,
+  courseId = 0,
+  playStatus = false,
+  chapterPage = 1,
+  chapterPageCount = 0,
+  expand = "section",
+  currentMajor = {},
+  condition = {
+    expand: "section",
+  },
+  downloadCourse = [],
+  currentSection,
+  cacheCourse;
+
+export default {
+  components: { courseVideo, modal, uniCollapse, chapterItem, cacheImage },
+
+  filters: {
+    omitString(source, length) {
+      if (!source) {
+        return;
+      }
+      if (source.length <= length) {
+        return source;
+      } else {
+        return source.substr(0, length) + "...";
+      }
+    },
+  },
+
+  data() {
+    return {
+      loadingType: 0,
+      currentTab: 0,
+      currentNum: 0,
+      initialTime: 0,
+      sectionId: "",
+      duration: "",
+      coursewares: [],
+      chapters: [],
+      course: {},
+      video: {},
+      systemInfo: {},
+      user: null,
+      menuTabs: [
+        {
+          name: "目录",
+        },
+        {
+          name: "讲义",
+        },
+        {
+          name: "介绍",
+        },
+      ],
+      showCountDown: false,
+      countDown: 5,
+      modalShow: false,
+      dialogTitle: "来学网",
+      statusBarHeight: 0,
+    };
+  },
+
+  watch: {
+    currentTab(newVal) {
+      /* newVal : 1 加载课件 */
+      if (newVal == 1 && this.coursewares.length == 0) {
+        this.getCoursewares();
+      }
+      /* newVal : 2 加载目录 */
+      if (newVal == 2 && this.chapters.length == 0) {
+        this.getChapter(courseId, condition, chapterPage);
+      }
+    },
+    chapters(newValue) {
+      this.$nextTick(() => {
+        if (newValue.length < 1) {
+          return;
+        }
+
+        newValue.forEach((item) => {
+          if (!item.sections) {
+            return;
+          }
+          item.sections.forEach((section) => {
+            if (this.sectionId == section.id) {
+              item.open = true;
+            }
+          });
+        });
+      });
+    },
+    modalShow(newVal) {
+      // issue #3289
+      if (newVal) {
+        setTimeout(() => {
+          this.$refs.video.pause();
+        }, 500);
+      }
+    },
+  },
+
+  onLoad(option) {
+    this.user = jwt.user();
+    courseId = option.id;
+    this.sectionId = option.sid;
+    this.getCourse();
+    uni.$on("login", this.loadData);
+    uni.$on("courseView", function (data) {
+      this.duration = Math.round(data.duration);
+    });
+    currentMajor = uni.getStorageSync("current-major");
+    downloadCourse = uni.getStorageSync("downloadCourse");
+    uni.getSystemInfo({
+      success: (res) => {
+        this.systemInfo = res;
+        this.statusBarHeight = this.systemInfo.statusBarHeight;
+      },
+    });
+    // finish #2749
+    Stark.onmessage = (event) => {
+      this.duration = Math.round(event.data);
+    };
+  },
+
+  onUnload() {
+    this.updateWatchRecord();
+    uni.$off("login", this.loadData);
+  },
+
+  methods: {
+    goBack() {
+      loc.back();
+    },
+
+    goWebView() {
+      // issue #3303
+      const children = this.$refs.video;
+      children.pause();
+
+      loc.open(
+        `out/out?url=${encodeURIComponent(
+          `${H5Url}video/view.html?videoId=${currentSection.video_id}&current=${children.current}`
+        )}`
+      );
+    },
+
+    loading() {
+      if (chapterPage < chapterPageCount) {
+        chapterPage++;
+        this.getChapter(courseId, condition, chapterPage);
+      }
+    },
+
+    loadData(data) {
+      this.user = data;
+      this.getCourse();
+    },
+
+    playState(res) {
+      this.cancleDjs();
+      playStatus = res.playStatus;
+    },
+
+    updateWatchRecord() {
+      // finish #2749
+      finished = getApp().globalData.IS_VIDEO_END;
+      if (!this.user) {
+        return;
+      }
+      if (this.sectionId === "" || this.duration <= 0) {
+        return;
+      }
+
+      const tempDuration = this.duration;
+
+      uni.request({
+        url: "https://pv.sohu.com/cityjson?ie=utf-8",
+        success: (res) => {
+          const substr = res.data.match(/"cip": "(\S*)", "cid"/);
+          const ip = substr[1];
+          const condition = {
+            uid: this.user.id,
+            cid: courseId,
+            duration: tempDuration,
+            is_finished: finished,
+            ip,
+          };
+          services("course-record").watch(this.sectionId, condition);
+        },
+      });
+    },
+
+    endLoad() {
+      let _self = this;
+      if (this.loadingType !== 0) {
+        return;
+      }
+      this.loadingType = 1;
+      uni.showNavigationBarLoading();
+      if (timer != null) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(function () {
+        if (currentPage < pageCount) {
+          this.loadingType = 1;
+          uni.showNavigationBarLoading();
+          currentPage++;
+          _self.getCoursewares();
+        } else {
+          this.loadingType = 2;
+          return;
+        }
+      }, 1000);
+    },
+
+    switchMenu(current) {
+      this.currentTab = current;
+    },
+
+    swiperChange(event) {
+      if (!this.showCourseware) {
+        this.currentTab = event.detail.current;
+      }
+    },
+
+    changeCurrent(e) {
+      if (e.detail.source == "touch") {
+        this.currentNum = e.detail.current;
+      }
+    },
+
+    getCoursewares() {
+      if (!this.user) {
+        return;
+      }
+      services("course")
+        .queryCoursewares(this.sectionId, currentPage)
+        .then((res) => {
+          if (res.data.error_code && res.data.error_code !== "SUCCESS") {
+            return;
+          }
+          if (res.data.total_count == 0) {
+            return;
+          }
+          uni.hideNavigationBarLoading();
+          uni.stopPullDownRefresh();
+          pageCount = res.data.page_count;
+          if (currentPage > 1) {
+            this.coursewares = this.coursewares.concat(res.data.items);
+          } else {
+            this.coursewares = res.data.items;
+          }
+          if (currentPage >= pageCount) {
+            this.loadingType = 2;
+            return;
+          }
+        });
+    },
+
+    loadCacheData(cacheOptions, query, dataName) {
+      const cache = Object.assign({
+        params: [],
+        afterLoad: null,
+        beforeCache: null,
+      }, cacheOptions);
+
+      const cacheValue = cacheMethod.get(cache.key, ...cache.params);
+      cacheCourse = cacheValue;
+      if (cacheValue) {
+        this[dataName] = cacheValue;
+
+        if (cache.afterLoad) {
+          cache.afterLoad(cacheValue);
+        }
+      }
+      return new Promise((resolve, reject) => {
+        let response;
+        query.then(res => {
+          cacheMethod.remove(cache.key, ...cache.params)
+          if (cache.beforeCache) {
+            response = cache.beforeCache(res.data);
+          } else {
+            // 如果没有items则要有beforeCache
+            response = res.data.items;
+          }
+          this[dataName] = response;
+          cacheMethod.set(cache.key, response, ...cache.params);
+          resolve(res);
+        }).catch(err => {
+          reject(err);
+        });
+      })
+    },
+
+    getCourse() {
+      cacheCourse = '';
+      this.loadCacheData(
+        {
+          key: cacheKeys.courses.detail,
+          params: [Number(courseId)],
+          beforeCache: this.beforeLoadCacheDataCache,
+          afterLoad: this.afterGetCourseLoad,
+        },
+        services("course").get(courseId),
+        'course',
+      ).then(res => {
+        if (res.data.error_code) {
+          return;
+        }
+        this.afterGetCourseLoad(res.data);
+        // 如果购买状态改变或者小节更新时间改变或没有存储章节时调
+        this.getChapter(courseId, condition, chapterPage);
+      }).catch(err => {
+        this.getChapter(courseId, condition, chapterPage);
+      })
+    },
+
+    afterGetCourseLoad(course) {
+      if (!course) {
+        this.course = {};
+      }
+      let routes = getCurrentPages();
+      let curRoute = routes[routes.length - 1].route;
+      if (curRoute.indexOf("course/view") == -1) {
+        return;
+      }
+      mixins.methods.setTitle(this.course.title);
+    },
+
+    beforeLoadCacheDataCache(data) {
+      this.course = data;
+      if (!this.user) {
+        this.course.is_buyed = 0;
+      }
+      if (!this.course.description) {
+        this.course.description =
+          "讲师根据新大纲要求，细致、深入、系统地讲解考纲所涉及的各个知识要点，突出考试重点、难点，紧跟命题方向，透彻解析教材，帮助考生形成专业理论构架，建立正确的解题思维体系，提高考生综合应试能力。";
+      }
+      return this.course;
+    },
+
+    getChapter(courseId, condition, chapterPage) {
+      const cache = {
+        key: cacheKeys.courses.chapters,
+        params: [Number(courseId)],
+        beforeCache: this.beforeGetChapterCache,
+        afterLoad: this.afterGetChapterLoad,
+      };
+      const cacheChapter = cacheMethod.get(cache.key, ...cache.params);
+      if (cacheCourse.is_buyed != this.course.is_buyed || cacheCourse.section_updated_at != this.course.section_updated_at || !cacheChapter) {
+        services("course").queryChapters(courseId, condition, chapterPage).then(res => {
+          if (res.data.error_code) {
+            return;
+          }
+          chapterPageCount = res.data.page_count;
+          let response;
+          cacheMethod.remove(cache.key, ...cache.params)
+          if (cache.beforeCache) {
+            response = cache.beforeCache(res.data);
+          } else {
+            // 如果没有items则要有beforeCache
+            response = res.data.items;
+          }
+          this['chapters'] = response;
+          cacheMethod.set(cache.key, response, ...cache.params);
+          this.afterGetChapterLoad(res.data.items);
+        })
+        return;
+      }
+      this['chapters'] = cacheChapter;
+      if (cache.afterLoad) {
+        cache.afterLoad(cacheChapter);
+      }
+    },
+
+    beforeGetChapterCache(data) {
+      let chapters = data.items;
+      if (chapterPage > 1) {
+        this.chapters = this.chapters.concat(chapters);
+      } else {
+        this.chapters = chapters;
+      }
+      return this.chapters;
+    },
+
+    afterGetChapterLoad(chapters) {
+      let section = null;
+
+      // 直接观看课程默认从第一小节播放
+      if (!this.sectionId) {
+        section = chapters[0].sections[0];
+        this.sectionId = section.id;
+      } else {
+        // 从观看记录进入课程，查询对象的小节
+        chapters.forEach((chapter, i) => {
+          if (!chapter.sections) return;
+          for (let item = 0; item < chapter.sections.length; item++) {
+            if (chapter.sections[item].id == this.sectionId) {
+              section = chapter.sections[item];
+            }
+          }
+        });
+      }
+
+      if (chapterPage > 1) {
+        this.chapters = this.chapters.concat(chapters);
+      } else {
+        this.chapters = chapters;
+      }
+
+      if (currentSectionId === null) {
+        // 第一次加载章节的时候播放视频
+        this.getVideo(section);
+        // 页面初始化时获得初始section.id
+        currentSectionId = this.sectionId;
+      }
+    },
+
+    // issue 2750
+    ended() {
+      clearInterval(countDownTimer);
+      this.showCountDown = true;
+      this.countDown = 5;
+      let nextData = null;
+      nextData = this.getNextSection();
+      if (!nextData) {
+        clearInterval(countDownTimer);
+        return;
+      }
+      countDownTimer = setInterval(() => {
+        this.countDown--;
+        if (this.countDown <= 0) {
+          clearInterval(countDownTimer);
+          // 应该跳到下个小节
+          this.showCountDown = false;
+          this.chapters.forEach((item) => {
+            if (!item.sections) {
+              return;
+            }
+            item.open = false;
+            item.sections.forEach((section) => {
+              if (nextData.section.id == section.id) {
+                item.open = true;
+              }
+            });
+          });
+          this.getVideo(nextData.section);
+        }
+      }, 1000);
+    },
+
+    getNextSection() {
+      let nextData = {
+        section: {
+          chapter_id: null,
+          id: null,
+          price: null,
+          title: null,
+          video_id: null,
+        },
+        chapter: null,
+      };
+      let lastSection = null;
+      for (let i = 0; i < this.chapters.length; i++) {
+        if (!this.chapters[i].sections) {
+          continue;
+        }
+        for (let j = 0; j < this.chapters[i].sections.length; j++) {
+          lastSection = this.chapters[this.chapters.length - 1].sections[
+            this.chapters[this.chapters.length - 1].sections.length - 1
+          ].id;
+          // 最后一章最后一节不提示跳转下一节
+          if (currentSectionId === lastSection) {
+            this.cancleDjs();
+            return;
+          }
+
+          if (currentSectionId == this.chapters[i].sections[j].id) {
+            // 如果当前小节不是所在章中的最后一节则找本章中的下一个小节
+            if (j + 1 < this.chapters[i].sections.length) {
+              nextData.section = this.chapters[i].sections[j + 1];
+              return nextData;
+            } else {
+              // 如果当前小节是所在章中的最后一个小节则找下一个章中的第一个小节
+              if (this.chapters[i + 1].sections == null) {
+                this.cancleDjs();
+                return;
+              }
+              nextData.section = this.chapters[i + 1].sections[0];
+              nextData.chapter = i + 1;
+              return nextData;
+            }
+          }
+        }
+      }
+    },
+
+    cancleDjs() {
+      this.showCountDown = false;
+      clearInterval(countDownTimer);
+    },
+
+    checkSection(section) {
+      if (!section) {
+        return false;
+      }
+      if (!this.user && section.id != this.chapters[0].sections[0].id) {
+        this.$refs.video.pause();
+        loc.open("login/login");
+        return false;
+      }
+      if (currentSectionId === section.id) {
+        return false;
+      }
+      return true;
+    },
+
+    getVideo(section) {
+      currentSection = section;
+      if (!this.checkSection(section)) {
+        return;
+      }
+
+      this.video.play_info = [];
+      if (section.price > 0 && this.course.is_buyed == 0) {
+        // issue#3297 处理未登录第一小节是vip情况
+        if (!this.user && section.id == this.chapters[0].sections[0].id) {
+          setTimeout(() => {
+            this.$refs.video.pause();
+          }, 500);
+          loc.open("login/login");
+          return false;
+        }
+        this.modalShow = true;
+        this.dialogTitle = "此课程需要购买才可以观看";
+        return;
+      }
+
+      this.showCountDown = false;
+
+      currentSectionId = section.id;
+      this.updateWatchRecord();
+      this.duration = 0;
+
+      if (downloadCourse === "") {
+        this.getVideoPlayInfo(section);
+        return;
+      }
+
+      let tempCourse = downloadCourse.find((course) =>
+        course.sections.find(
+          (item) =>
+            item.id == section.id && item.status == downloadStatus.DOWNLOADED
+        )
+      );
+
+      // 没有找到缓存，直接获取视频信息
+      if (tempCourse === undefined) {
+        this.getVideoPlayInfo(section);
+        return;
+      }
+
+      let key = downloadCourse.findIndex(
+        (course) => course.id == tempCourse.id
+      );
+      section = tempCourse.sections.find(
+        (item) =>
+          item.id == section.id && item.status == downloadStatus.DOWNLOADED
+      );
+      let sectionKey = tempCourse.sections.findIndex(
+        (item) => item.id == section.id
+      );
+      const filePath = section.path;
+      this.video.play_info = plus.io.convertLocalFileSystemURL(filePath);
+
+      setTimeout(() => {
+        plus.io.resolveLocalFileSystemURL(
+          this.video.play_info,
+          (entry) => {
+            this.sectionId = section.id;
+          },
+          (e) => {
+            downloadCourse[key].sections.splice(sectionKey, 1);
+            uni.setStorageSync("downloadCourse", downloadCourse);
+            this.getVideoPlayInfo(section);
+          }
+        );
+      }, 500);
+    },
+
+    getVideoPlayInfo(section) {
+      services("video")
+        .find(section.video_id)
+        .then((videoData) => {
+          if (
+            videoData.data.error_code &&
+            videoData.data.error_code !== "SUCCESS"
+          ) {
+            return;
+          }
+          this.video = videoData.data;
+          let playInfo = this.video.play_info;
+
+          let orders = ["FD", "LD", "SD", "HD", "2K", "4K", "OD"];
+
+          playInfo.sort((a, b) => {
+            return orders.indexOf(a.definition) - orders.indexOf(b.definition);
+          });
+
+          this.video.play_info = playInfo;
+          this.sectionId = section.id;
+          this.initCourseware();
+          this.getSectionRecord();
+        });
+    },
+
+    initCourseware() {
+      this.currentNum = 0;
+      this.coursewares = [];
+      this.loadingType = 0;
+      currentPage = 1;
+    },
+
+    // 视频小节观看记录详情
+    async getSectionRecord() {
+      let res;
+      try {
+        res = await services("course-record").queryBySection(this.sectionId);
+
+        if (res.data.error_code) {
+          return;
+        }
+        // issue 2281
+        if (res.data.is_finished == 1) {
+          this.initialTime = 0;
+        } else {
+          this.initialTime = res.data.duration;
+        }
+      } catch (error) {
+        this.initialTime = 0;
+      }
+    },
+
+    goDocument(id) {
+      // issue #3316 改为播放不了的视频也可以点击下载按钮
+      if (!this.user) {
+        this.$refs.video.pause();
+        loc.open(`course/courseware?courseId=${id}`);
+        return;
+      }
+
+      if (this.course.is_buyed === 0) {
+        this.modalShow = true;
+        this.dialogTitle = "此课件需要购买课程才可下载";
+        return false;
+      }
+      this.$refs.video.pause();
+      loc.open(`course/courseware?courseId=${id}`);
+    },
+
+    // 轮播
+    openLightBox(index, coursewares) {
+      this.$refs.video.pause();
+      const urls = [];
+      for (let i = 0; i < coursewares.length; i++) {
+        urls.push(coursewares[i].url);
+      }
+      uni.previewImage({
+        current: index,
+        urls,
+      });
+    },
+
+    cancel() {
+      this.modalShow = false;
+    },
+
+    confirm() {
+      this.$refs.video.pause();
+      loc.open(`user/enroll?categoryID=${currentMajor.category_id}`);
+    },
+
+    downloadVideo() {
+      // issue #3262 添加视频下载按钮
+      if (!courseId) {
+        return;
+      }
+      this.$refs.video.pause();
+      const courseObj = {
+        id: this.course.id,
+        title: this.course.title,
+        cover: this.course.cover,
+      };
+
+      loc.open(`course/choice?course=${JSON.stringify(courseObj)}`);
+    },
+  },
+};
+</script>
+
+<style scoped>
+.wrapper {
+  position: relative;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 750rpx;
+  background-color: #ffffff;
+}
+
+.head {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  padding-left: 20rpx;
+  padding-right: 20rpx;
+  width: 750rpx;
+  height: 90rpx;
+  background-color: #fff;
+}
+
+.icon-back {
+  width: 48rpx;
+  height: 48rpx;
+}
+
+.head-middle {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.head-title {
+  font-size: 30rpx;
+  color: #222222;
+}
+
+.head-right {
+  flex-direction: row;
+  justify-content: center;
+  width: 100rpx;
+}
+
+.swiper-tab {
+  justify-content: space-around;
+  flex-direction: row;
+  height: 80rpx;
+  background-color: #ffffff;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-bottom-color: #dcdcdc;
+}
+
+.swiper-tab-list {
+  padding-left: 15rpx;
+  padding-right: 15rpx;
+}
+
+.swiper-tab-text {
+  line-height: 80rpx;
+  font-size: 30rpx;
+  color: #222222;
+}
+
+.swiper-box-list {
+  flex: 1;
+}
+
+.active {
+  color: #1d8fe2;
+  border-bottom-width: 4px;
+  border-bottom-style: solid;
+  border-bottom-color: #1d8fe2;
+}
+
+.introduction {
+  background-color: #ffffff;
+  padding-bottom: 98rpx;
+}
+
+.introduction-top {
+  padding-bottom: 29rpx;
+}
+
+.introduction-title {
+  margin-top: 36rpx;
+  margin-left: 21rpx;
+  margin-bottom: 29rpx;
+  margin-right: 15rpx;
+}
+
+.introduction-text {
+  color: #222222;
+  font-weight: bold;
+  font-size: 30rpx;
+}
+
+.introduction-score {
+  margin-left: 21rpx;
+}
+
+.score-text {
+  font-size: 22rpx;
+  color: #666666;
+}
+
+.like-box {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.like-box-left {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.like {
+  margin-left: 10rpx;
+  margin-right: 13rpx;
+  position: relative;
+}
+
+.hints {
+  margin-left: 20rpx;
+  font-size: 22rpx;
+  color: #666666;
+}
+
+.icon-aixin {
+  padding-top: 2rpx;
+  width: 26rpx;
+  height: 26rpx;
+}
+
+.icon-unlike {
+  flex-direction: row;
+}
+
+.icon-like {
+  position: absolute;
+  top: 0;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.introduction-content {
+  padding-top: 40rpx;
+  padding-left: 24rpx;
+  padding-right: 43rpx;
+}
+
+.desc-title {
+  margin-bottom: 20rpx;
+}
+
+.desc-title-text {
+  font-size: 30rpx;
+  color: #222222;
+  font-weight: bold;
+}
+
+.desc {
+  font-size: 24rpx;
+  color: #666666;
+  line-height: 45rpx;
+}
+
+.black-space {
+  height: 20rpx;
+  background-color: #eeeeee;
+}
+
+.coursewares-item {
+  padding-bottom: 50rpx;
+  justify-content: center;
+}
+
+.coursewares-img {
+  margin-top: 20rpx;
+  margin-left: 30rpx;
+  margin-right: 30rpx;
+  width: 702rpx;
+  height: 300rpx;
+}
+
+.show-popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 750rpx;
+  background-color: #000000;
+  opacity: 0.3;
+  z-index: 990;
+}
+
+.light-box {
+  position: fixed;
+  top: 400rpx;
+  left: 0;
+  width: 750rpx;
+  height: 410rpx;
+  background-color: #ffffff;
+  z-index: 999;
+}
+
+.light-box-image {
+  width: 750rpx;
+  height: 410rpx;
+}
+
+.black-space {
+  height: 20rpx;
+  background-color: #eeeeee;
+}
+
+.chapter-item {
+  border-color: #eeeeee;
+  border-bottom-width: 24rpx;
+  border-bottom-style: solid;
+  background-color: #fff;
+}
+
+.chapter-sections {
+  flex-direction: row;
+  margin-top: 29rpx;
+  margin-left: 0rpx;
+  margin-bottom: 29rpx;
+  margin-right: 0rpx;
+  padding-left: 25rpx;
+  padding-right: 25rpx;
+}
+
+.icon-play {
+  margin-right: 12rpx;
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.icon-vip {
+  font-size: 34rpx;
+  color: #f00;
+}
+
+.icon-download {
+  margin-right: 24rpx;
+  width: 40rpx;
+  height: 40rpx;
+}
+
+.section-title {
+  width: 670rpx;
+  font-size: 28rpx;
+  color: #333;
+}
+
+.section-active {
+  font-weight: bold;
+  color: #222;
+  font-size: 28rpx;
+}
+
+.icon-active {
+  color: #3b8bfd;
+}
+
+.uni-collapse-cell--hover {
+  background-color: #fff;
+}
+
+.coursewares-tip {
+  margin-top: 14rpx;
+}
+
+.coursewares-tip-text {
+  color: #222222;
+  font-size: 32rpx;
+  text-align: center;
+}
+
+.vip-text {
+  font-size: 34rpx;
+  color: #ff0000;
+}
+
+.icon-vip {
+  width: 34rpx;
+  height: 34rpx;
+}
+
+.iconfont {
+  font-family: iconfont;
+}
+
+.courseware {
+  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+  margin-left: 20rpx;
+  padding-left: 16rpx;
+  padding-right: 16rpx;
+  border-width: 1px;
+  border-style: solid;
+  border-color: #bbbbbb;
+  border-radius: 100rpx;
+  width: 136rpx;
+  height: 48rpx;
+  text-align: center;
+  line-height: 48rpx;
+  font-size: 24rpx;
+  color: #333333;
+}
+
+.courseware-text {
+  font-size: 24rpx;
+  color: #333333;
+}
+
+.icon-kejian {
+  margin-right: 10rpx;
+  width: 24rpx;
+  height: 24rpx;
+}
+
+.course-title {
+  width: 540rpx;
+  font-size: 28rpx;
+  color: #222;
+  lines: 1;
+  text-overflow: ellipsis;
+}
+
+.courseware-box {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 750rpx;
+  padding-left: 28rpx;
+  padding-right: 25rpx;
+  padding-top: 20rpx;
+}
+
+.icon-text {
+  font-size: 28rpx;
+  color: #333333;
+}
+
+.section-right {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 650rpx;
+}
+</style>

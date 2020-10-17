@@ -1,0 +1,3 @@
+[submodule "plugins/service"]
+	path = plugins/service
+	url = ssh://git@git.laixuejigou.com:2212/laixuejigou/lx-vue-service.git

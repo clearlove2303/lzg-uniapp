@@ -1,0 +1,1180 @@
+<template>
+	<view class="video-box">
+    <!--#2796 解决视频播放完后IOS端显示播放按钮的bug -->
+		<video
+			controls="false"
+			show-center-play-btn="false"
+      show-play-btn="false"
+			show-fullscreen-btn="false"
+			show-progress="false"
+			:objectFit="objectFit"
+			:src="src"
+			enable-progress-gesture="false"
+      @waiting="waiting"
+			@fullscreenchange="changeScreen"
+			@timeupdate="timeupdate"
+			@ended="ended"
+			id="chunlei-video"
+			ref="chunleiVideo"
+			class="video">
+      <!-- 小屏幕时样式 -->
+			<cover-view  class="video-view" v-if="!fullScreen" :style="{width: `750rpx`, height: `200px`}">
+				<div
+					class="move-view"
+					@touchend="videoTouchEnd"
+					@touchcancel= "videoTouchEnd"
+					@touchmove="videoTouchMove"
+					@touchstart="videoTouchStart"
+					:style="{height: `200px`, width: `750rpx`}"></div>
+				<div class="stop" v-if="!play"><text class="ios-title">已暂停</text></div>
+				<image class="video-view" :style="{width: `750rpx`, height: `200px`}" :src="poster" v-if="poster != '' && playFirst"></image>
+				<div class="controls-view-top" v-if="showControls && isBack">
+					<div @click="back" class="btn-bbox"><text class="ios-icon">&#xe60a;</text></div>
+				</div>
+				<div class="controls-view" v-if="showControls">
+					<div @click="videoPlay" v-if="play" class="btn-bbox"><text class="ios-icon">&#xe601;</text></div>
+					<div @click="videoPlay" v-else class="btn-bbox"><text class="ios-icon">&#xe896;</text></div>
+					<text class="sm-title">{{currentDuration}}</text>
+					<!-- #ifdef APP-PLUS -->
+					<chunLei-slider
+						:max="duration"
+						:value="current"
+						:style="{width:`${sliderWidth}px`}"
+						:screenLeft="duration >= 3600 ? 150 : 120"
+						:width="sliderWidth"
+						@change="changeCurrent"
+						:backgroundColor="color"
+						:blockColor="color"></chunLei-slider>
+					<!-- #endif -->
+						<!-- #ifndef APP-PLUS -->
+					<chunLei-slider
+						:max="duration"
+						:value="current"
+						:style="{width:`${sliderWidth}px`}"
+						:screenLeft="duration >= 3600 ? 150 : 120"
+						:width="sliderWidth"
+						@change="changeCurrent"
+						:backgroundColor="color"
+						:blockColor="color"
+						direction="clientX"></chunLei-slider>
+					<!-- #endif -->
+					<text class="sm-title">{{lastDuration}}</text>
+					<div @click="tapFullScreen" class="btn-bbox" v-if="showFullscreenBtn"><text class="ios-icon">&#xe60d;</text></div>
+				</div>
+
+				<!-- 滑动video时显示 -->
+				<div class="current-view flex" v-if="touchType=='current'">
+					<div class="current-top"><text class="ios-title">{{touchCurrentDuration}}/{{lastDuration}}</text></div>
+					<div class="current-bottom"><div class="current-progress" :style="{width: `${touchCurrent / duration * 260}rpx`}"> </div></div>
+				</div>
+				<cover-view class="screen-count-down" v-if="showCountDown">
+					<text class="sm-title">自动播放下一节({{ countDown }}S)</text>
+					<text class="sm-title cancel" @click="cancleDjs">取消</text>
+				</cover-view>
+			</cover-view>
+			<!-- #ifdef APP-PLUS -->
+			<!-- 全屏 -->
+			<cover-view  class="video-view" v-if="fullScreen" :style="{width: `${fullControlsWidth}px`,height: `${fullControlsHeigt}px`}">
+				<div
+					class="move-view"
+					@touchend="videoTouchEnd"
+					@touchmove="videoTouchMove"
+					@touchstart="videoTouchStart"
+					:style="{width: `${fullControlsWidth}px`, height: `${fullControlsHeigt}px`}"></div>
+
+				<div class="stop" v-if="!play"><text :class="`${platform}-title`">已暂停</text></div>
+				<cover-view class="screen-count-down full-count-down" v-if="showCountDown">
+					<text class="ios-title">自动播放下一节({{ countDown }}S)</text>
+					<text class="ios-title cancel" @click="cancleDjs">取消</text>
+				</cover-view>
+			</cover-view>
+			<cover-view
+				class="controls-top"
+				ref="controlsTop"
+				:style="{width: `${fullControlsWidth}px`}"
+				v-if="fullScreen && showControls && !lock">
+				<div class="top-left">
+					<div class="btn-bbox"  @click="tapFullScreen"><text :class="`${platform}-icon`">&#xe60a;</text></div>
+					<text :class="`${platform}-title`">{{title}}</text>
+				</div>
+				<div class="top-right">
+					<div class="btn-bbox margin-bright" @click="clickMoreView"><text :class="`${platform}-icon`">&#xe646;</text></div>
+					<div class="power-view">
+						<div class="power-box">
+							<div class="power-header"></div>
+							<div class="power-body">
+								<div class="power-level" :style="{width:`${16 * level}px`, backgroundColor: '#fff'}"></div>
+							</div>
+						</div>
+						<text :class="`${platform}-sm-title`">{{nowTime}}</text>
+					</div>
+				</div>
+			</cover-view>
+			<cover-view
+				class="set-view"
+				v-if="fullScreen && (rateView || srcView || moreView)"
+				:style="{width: `${fullControlsWidth}px`, height: `${fullControlsHeigt}px`}">
+        <!-- || episodeView -->
+				<div class="rate-set" :style="{width: `${fullControlsWidth}px`, height: `${fullControlsHeigt}px`}" v-if="rateView"  @click.stop="clickRateView">
+					<text :class="`${platform}-big-title`" :style="{marginBottom: '40px'}">播放速度</text>
+					<div class="set-bottom">
+						<div class="set-box" :class=" 0.5 == rate ? 'solid-bottom' : ''" :style="{borderBottomColor: 0.5 == rate ? color : '#fff'}" @click.stop="(args) => tapRate(args, 0.5)">
+							<text :class="`${platform}-big-title`" :style="{color: 0.5 == rate ? color : '#fff'}">0.5x</text>
+						</div>
+						<div class="set-box" :class=" 1.0 == rate ? 'solid-bottom' : ''" :style="{borderBottomColor: 1.0== rate ? color : '#fff'}" @click.stop="(args) => tapRate(args, 1)">
+							<text :class="`${platform}-big-title`" :style="{color: 1.0 == rate ? color : '#fff'}">1.0x</text>
+						</div>
+						<div class="set-box" :class=" 1.25 == rate ? 'solid-bottom' : ''" :style="{borderBottomColor: 1.25== rate ? color : '#fff'}" v-if="platform == 'android'" @click.stop="(args) => tapRate(args, 1.25)">
+							<text :class="`${platform}-big-title`" :style="{color: 1.25 == rate ? color : '#fff'}">1.25x</text>
+						</div>
+						<div class="set-box" :class=" 1.5 == rate ? 'solid-bottom' : ''" :style="{borderBottomColor: 1.5== rate ? color : '#fff'}" v-if="platform == 'android'" @click.stop="(args) => tapRate(args, 1.5)">
+							<text :class="`${platform}-big-title`" :style="{color: 1.5 == rate ? color : '#fff'}">1.5x</text>
+						</div>
+						<div class="set-box" :class=" 2.0 == rate ? 'solid-bottom' : ''" :style="{borderBottomColor: 2.0 == rate ? color : '#fff'}" @click.stop="(args) => tapRate(args, 2.0)">
+							<text :class="`${platform}-big-title`" :style="{color: 2.0 == rate ? color : '#fff'}">2.0x</text>
+						</div>
+					</div>
+				</div>
+				<div class="rate-set" :style="{width: `${fullControlsWidth}px`, height: `${fullControlsHeigt}px`}" v-if="srcView"  @click.stop="clickSrcView">
+					<text :class="`${platform}-big-title`" :style="{marginBottom: '40px'}">{{srcTitle}}</text>
+					<div class="set-bottom">
+						<div
+							class="set-box"
+							:class="srcTitle == item.definition ? 'solid-bottom' : ''"
+							:style="{borderBottomColor: srcTitle == item.definition ? color : '#fff'}"
+							@click.stop="(args) => tapSrc(args, item)"
+							v-for="(item, index) in srcList" :key="index">
+							<text :class="`${platform}-big-title`" :style="{color:srcTitle == item.definition ? color : '#fff'}">{{item.definition | handleDefinition}}</text>
+						</div>
+					</div>
+				</div>
+				<div class="more-set" :style="{width: `${fullControlsWidth}px`, height: `${fullControlsHeigt}px`}" v-if="moreView"  @click.stop="clickMoreView">
+					<div class="more-row">
+						<div class="more-box" @click.stop="clickFull" v-if="!full">
+							<text :class="`${platform}-big-icon`" style="color: #FFF">&#xe602;</text>
+							<text :class="`${platform}-title`" style="color: #FFF">撑满全屏</text>
+						</div>
+						<div class="more-box" @click.stop="clickFull" v-if="full">
+							<text :class="`${platform}-big-icon`" :style="{color: color}">&#xe78a;</text>
+							<text :class="`${platform}-title`" :style="{color: color}">恢复不撑满</text>
+						</div>
+					</div>
+					<div class="more-tap"></div>
+					<div class="more-row">
+						<div class="more-box"><text :class="`${platform}-title`">播放速度</text></div>
+						<scroll-view class="scroll-view" scroll-x="true" :scroll-left="1.5 == rate ? 200 : 0" :style="{width: `${fullControlsWidth - 320}px`}">
+							<div class="more-box" @click.stop="(args) => tapRate(args, 0.5)"><text class="`${platform}-title`" :class="0.5 == rate ? 'solid-bottom' : ''" :style="{color:0.5 == rate ? color : '#fff', borderBottomColor: 0.5 == rate ? color : '#fff'}">0.5x</text></div>
+							<div class="more-box" @click.stop="(args) => tapRate(args, 1)"><text class="`${platform}-title`" :class="1.0 == rate ? 'solid-bottom' : ''" :style="{color:1.0 == rate ? color : '#fff', borderBottomColor: 1.0 == rate ? color : '#fff'}">1.0x</text></div>
+							<div class="more-box" @click.stop="(args) => tapRate(args, 1.25)"><text class="`${platform}-title`" :class="1.25 == rate ? 'solid-bottom' : ''" v-if="platform == 'android'" :style="{color:1.25 == rate ? color : '#fff', borderBottomColor: 1.25 == rate ? color : '#fff'}">1.25x</text></div>
+							<div class="more-box" @click.stop="(args) => tapRate(args, 1.5)"><text class="`${platform}-title`" :class="1.5 == rate ? 'solid-bottom' : ''" v-if="platform == 'android'" :style="{color:1.5 == rate ? color : '#fff', borderBottomColor: 1.5 == rate ? color : '#fff'}">1.5x</text></div>
+							<div class="more-box" @click.stop="(args) => tapRate(args, 2.0)"><text class="`${platform}-title`" :class="2.0 == rate ? 'solid-bottom' : ''" :style="{color:2.0 == rate ? color : '#fff', borderBottomColor: 2.0 == rate ? color : '#fff'}">2.0x</text></div>
+						</scroll-view>
+					</div>
+				</div>
+			</cover-view>
+			<cover-view class="fullCurrent-current" v-if="fullScreen && touchType == 'current'" :style="{left: `${fullControlsWidth / 2 - 75}px`}">
+				<div class="fullCurrent-top">
+					<text :class="`${platform}-title`">{{touchCurrentDuration}}/{{lastDuration}}</text>
+
+				</div>
+				<div class="fullCurrent-bottom">
+					<div class="current-progress" :style="{width: `${touchCurrent / duration * 110}px`}"> </div>
+				</div>
+
+			</cover-view>
+			<cover-view
+				class="fullControls-view"
+				ref="controlsBtm"
+				:style="{width: `${fullControlsWidth}px`}"
+				v-if="fullScreen && showControls && !lock">
+					<!-- 进度条 -->
+				<div class="fullControls-top" :style="{width: `${fullControlsWidth}px`}">
+					<text :class="`${platform}-title`">{{currentDuration}}</text>
+					<chunLei-slider
+						:max="duration"
+						:iosDirection="platform != 'ios' ?  1 : -direction / 90"
+						:value="current"
+						:style="{width: `${fullControlsWidth - 180}px`}"
+						screenLeft="0"
+						:width="fullControlsWidth - 180"
+						@change="changeCurrent"
+						ratio="1"
+						:direction="platform != 'ios' ? 'screenX' : 'screenY'"
+						:backgroundColor="color"
+						:blockColor="color"></chunLei-slider>
+					<text :class="`${platform}-title`">{{lastDuration}}</text>
+				</div>
+				<!-- 底部工具栏 -->
+				<div class="fullControls-bottom" :style="{width: `${fullControlsWidth}px`}">
+					<div class="fullControls-bottom-left">
+						<div class="btn-bbox" @click="videoPlay" v-if="play"><text :class="`${platform}-icon`">&#xe601;</text></div>
+						<div class="btn-bbox" @click="videoPlay" v-else><text :class="`${platform}-icon`">&#xe896;</text></div>
+					</div>
+					<div class="fullControls-bottom-right">
+						<div class="bottom-right-rate"  @click="clickRateView"><text :class="`${platform}-title`">{{rate}}x</text></div>
+						<div class="bottom-right-clear-left" @click="clickSrcView" v-if="srcTitle != ''"></div>
+						<div :class="`${platform}-title-box`" class="bottom-right-clear" @click="clickSrcView" v-if="srcTitle != ''">
+							<text :class="`${platform}-srcTitle`">{{srcTitle}}</text>
+						</div>
+						<div class="bottom-right-clear-right" @click="clickSrcView" v-if="srcTitle != ''"></div>
+						<div @click="tapFullScreen" class="bottom-right-zoom" v-if="showFullscreenBtn"><image src="/static/img/icon-zoom.png" class="icon-zoom"></div>
+					</div>
+				</div>
+			</cover-view>
+			<cover-view :class="`${platform}-lock`" @click.stop="clickLock" v-if="fullScreen && showControls" :style="{top: `${fullControlsHeigt / 2 - 30}px`}">
+				<text :class="`${platform}-icon`" v-if="!lock">&#xe8dd;</text>
+				<text :class="`${platform}-icon`" v-if="lock">&#xe61d;</text>
+			</cover-view>
+			<!-- #endif -->
+		</video>
+	</view>
+</template>
+
+<script>
+	import chunLeiSlider from './chunLei-slider/chunLei-slider.nvue';
+	//#ifdef APP-NVUE
+	const animation = weex.requireModule('animation');
+	const modal = weex.requireModule('modal');
+	//#endif
+	let videoCtx = ''; // 视频上下文
+	let remeber = false; // 播放记忆
+	let dblCount = 0; // 双击计数
+	let isSeeked = false;
+  let playStatus = false;// false: 缓冲  true: 播放
+	export default {
+		components: {
+			chunLeiSlider,
+		},
+		props: {
+			srcList: { // 要播放视频的资源地址
+				type: [Array, String],
+				default: ''
+			},
+			title: { // 视频标题
+				type: String,
+				default: ''
+			},
+			gDuration: { // 大概总时长
+				type: Number,
+				default: 0
+			},
+			currentSen: { // 进度条灵敏度
+				type: Number,
+				default: 40
+			},
+			initialTime: { // 指定视频初始播放位置，单位为秒（s）。
+				type: Number,
+				default: 0
+			},
+			color: { // 主题颜色
+				type: String,
+				default: '#FF6022'
+			},
+			orientation: { // 全屏下屏幕旋转
+				type: Boolean,
+				default: false
+			},
+			autoplay: { // 自动播放
+				type: Boolean,
+				default: true
+			},
+			showFullscreenBtn: { // 是否显示全屏按钮
+				type: Boolean,
+				default: true
+			},
+			poster: { // 视频封面的图片
+				type: String,
+				default: ''
+			},
+			isBack: { // 小屏返回
+				type: Boolean,
+				default: false
+			},
+			showCountDown: { // 是否显示倒计时
+				type: Boolean,
+				default: false
+			},
+			countDown: { // 还剩几秒倒计时
+				type: Number,
+				default: 5
+			}
+		},
+		data() {
+			return {
+				src: '',
+				srcTitle: '', // 高清标签
+				duration: 0, // 精确总时长
+				controls: false,
+				current: 0, // video进度
+				play: true, // 播放状态
+				fullScreen: false, // 全屏状态
+				direction: -90, // 全屏方向
+				objectFit: 'contain',
+				fullControlsWidth: '', // 全屏宽
+				fullControlsHeigt: 0, // 全屏高
+				showControls: true, // 显示控制
+				oldValue: {}, // 触摸开始 进度，音量，亮度
+				nowTime: '', // 当前时间
+				lock: false, // 锁屏
+				oldTouces: {},
+				touchType: null, // 滑动类型
+				platform: '', // 系统
+				rate: '1.0',
+				rateView: false, // 倍速
+				srcView: false, // 切换
+				moreView: false, // 更多
+				full: false, // 撑满全屏
+				playFirst: true, // 第一次播放
+				touchCurrent: 0,
+				ratio: 1, // 滚动条比例系数
+				level: 1  ,// 电量
+				// showCountDown: false,
+				// countDown: 5,
+			}
+		},
+
+		beforeCreate() {
+			// #ifdef APP-NVUE
+			var domModule = weex.requireModule('dom');
+			domModule.addRule('fontFace', {
+				'fontFamily': "texticons",
+				'src': "url('../../static/chunlei-video/text-icon.ttf')"
+			});
+			domModule.addRule('fontFace', {
+				'fontFamily': 'iconfont',
+				'src': "url(\'https://at.alicdn.com/t/font_688850_3w053bksb3r.ttf')"
+			})
+			// #endif
+		},
+		created() {
+			getApp().globalData.IS_VIDEO_END = 0;
+			this.fullControlsWidth = uni.getSystemInfoSync().screenHeight
+			this.fullControlsHeigt = uni.getSystemInfoSync().screenWidth + 1
+			// this.ratio = this.fullControlsWidth / this.fullControlsHeigt
+
+			uni.getSystemInfo({
+				success: (e) => {
+					this.platform = e.platform
+					this.changDirection()
+				}
+			})
+
+		},
+		async mounted() {
+			this.getLevel()
+			videoCtx = uni.createVideoContext(`chunlei-video`, this)
+      uni.$on('courseView', (data) => {
+        this.duration = Math.round(data.duration);
+      })
+      uni.$on('goBack', (data) => {
+        if (data.url == 'h5Video') {
+         videoCtx.seek(this.duration)
+         videoCtx.play()
+         this.play = true
+        }
+      })
+		},
+		methods: {
+			back() {
+				uni.navigateBack({
+					delta: 1
+				})
+			},
+			async changeSrc() {
+				this.playFirst = true
+				await this.promise(100)
+				this.playFirst = false
+				videoCtx.play();
+				this.play = true
+
+				//if(this.platform=='ios') await this.promise(1500)
+				videoCtx.seek(0)
+
+				videoCtx.playbackRate(this.rate * 1)
+			},
+			changDirection() {
+				//#ifdef APP-NVUE
+				if (this.orientation) {
+					plus.orientation.watchOrientation( o => {
+						if (this.platform == 'android'){
+							if (o.gamma > 40) {
+								this.direction = 90
+							} else if (o.gamma < -40) {
+								this.direction = -90
+							}
+						} else {
+
+							if (o.alpha > 40) {
+								this.direction = -90
+							} else if (o.alpha < -40) {
+								this.direction = 90
+							}
+						}
+					} , () => {}, {frequency: 1000});
+				}
+				//#endif
+			},
+			promise(time = 0){
+				let promise = new Promise((resolve,reject) => {
+					setTimeout(() => {
+						resolve()
+					}, time)
+				})
+				return promise
+			},
+			timeupdate(event) {
+        this.$emit('change', { playStatus: !playStatus})
+				if (this.initialTime && !isSeeked) {
+					this.tapRemeber();
+				}
+				this.duration = event.detail.duration
+				this.current = event.detail.currentTime
+				const Steve = new BroadcastChannel('Avengers')
+				Steve.postMessage(this.current)
+			},
+      ended() {
+        this.play = false;
+				getApp().globalData.IS_VIDEO_END = 1;
+				this.$parent.ended();
+			},
+			cancleDjs() {
+				this.$parent.cancleDjs();
+			},
+			// 拖动滑块(进度条)
+			changeCurrent(e) {
+				this.current = e.detail.value
+				videoCtx.seek(this.current)
+			},
+			seek(time) {
+				this.current = time
+				videoCtx.seek(this.current)
+			},
+			// 获取视频当前进度
+			// getCurrent() {
+			// 	return Math.floor(this.current)
+			// },
+			clickFull(e) {
+				e.stopPropagation();
+				if (this.full) {
+					this.objectFit = 'contain'
+				} else {
+					this.objectFit = 'fill'
+				}
+				this.full = !this.full
+				this.clickMoreView()
+			},
+			// 倍速播放
+			tapRate(e, rate) {
+				e.stopPropagation();
+				videoCtx.playbackRate(rate * 1)
+				this.rate = rate
+				if (this.fullScreen) {
+					this.clickRateView()
+				} else {
+					this.rateView = !this.rateView
+				}
+			},
+			// 跳转记忆
+			async tapRemeber(e) {
+				isSeeked = true;
+				videoCtx.seek(this.initialTime);
+			},
+			// 切换高清
+			async tapSrc(e, item) {
+				e.stopPropagation();
+				let current = this.current
+				if (this.src == item.playurl) {
+					// finish #2556
+					this.srcView = false;
+          return;
+				} else {
+          videoCtx.pause();
+					this.src = item.playurl
+          switch(item.definition) {
+            case 'OD':
+              this.srcTitle = '原画';
+              break;
+            case 'FD':
+              this.srcTitle = '流畅';
+              break;
+            case 'LD':
+              this.srcTitle = '标清';
+              break;
+            case 'SD':
+              this.srcTitle = '高清';
+              break;
+            case 'HD':
+              this.srcTitle = '超清';
+              break;
+            default:
+              break;
+          }
+					await this.promise()
+					this.play = true
+					if (this.platform == 'ios') await this.promise(1000)
+					videoCtx.seek(this.current);
+					videoCtx.playbackRate(this.rate * 1);
+          videoCtx.play();
+				}
+				this.clickSrcView()
+			},
+			// 暂停
+			pause(){
+				videoCtx.pause();
+				this.play = false
+			},
+			async videoPlay() {
+				if (!this.play){
+					await this.promise(100)
+					videoCtx.play();
+
+					if (this.playFirst){
+						//if(this.platform=='ios') await this.promise(1000)
+
+						//videoCtx.seek(this.initialTime)
+						this.playFirst = false
+					}
+					if (this.current >= this.duration) this.current = 0
+				} else {
+					videoCtx.pause();
+				}
+				this.play = !this.play;
+			},
+			tapFullScreen() {
+				this.showControls = false;
+				// issue #3354 全屏切换时保持当前播放进度
+				videoCtx.seek(this.current);
+				this.play = true;
+				if (!this.fullScreen) {
+					videoCtx.requestFullScreen({direction: this.direction})
+				} else {
+					videoCtx.exitFullScreen()
+				}
+			},
+			async clickVideo() {
+				this.showControls = !this.showControls
+			},
+			async clickRateView() {
+				this.showControls = !this.showControls
+				if (this.moreView) {
+					this.moreView = false
+
+				} else {
+					this.rateView = !this.rateView
+				}
+			},
+			// 切换srctitle
+			async clickSrcView() {
+				if (this.srcList.length == 1) {
+					return;
+				}
+				this.showControls = !this.showControls
+				this.srcView = !this.srcView
+			},
+			async clickMoreView() {
+				this.showControls = !this.showControls
+				this.moreView = !this.moreView
+			},
+			clickLock(e) {
+				e.stopPropagation();
+				this.lock = !this.lock
+			},
+			animateControls(distance, el) {
+				animation.transition(el, {
+					styles: {
+						transform: `translate(0px, ${distance}px)`,
+					},
+					duration: 150, // ms
+					timingFunction: 'ease-in-out',
+					delay: 0 // ms
+					}, () => {
+
+					}
+				)
+			},
+			// 触摸开始
+			videoTouchStart(e) {
+				this.oldTouces = e.changedTouches[0]
+				// 触摸开始的值
+				this.oldValue = {
+					current: this.current
+				}
+			},
+			// 计算方向
+			videoTouchMove(e) {
+				if (this.lock) return
+				let { oldTouces, oldValue, touchType } = this
+				let newTouces = e.changedTouches[0]
+				if (!this.touchType) {
+					// 进度控制
+          // issue #3132
+          if (this.platform == 'ios' && this.fullScreen) {
+            this.touchType = Math.abs( newTouces.pageY - oldTouces.pageY ) > 5 && Math.abs( newTouces.pageY - oldTouces.pageY ) > Math.abs(newTouces.pageX - oldTouces.pageX) ?
+            'current' :
+            null
+          } else {
+            this.touchType = Math.abs( newTouces.pageX - oldTouces.pageX ) > 5 && Math.abs( newTouces.pageX - oldTouces.pageX ) > Math.abs(newTouces.pageY - oldTouces.pageY) ?
+            'current' :
+            null
+          }
+          // 这段代码控制如果ios上下滑动显示进度的问题可以不要
+					//if (this.platform == 'ios' && this.fullScreen) {
+					//  this.touchType = Math.abs( newTouces.pageY - oldTouces.pageY ) > 50 ? 'current' : null
+          //}
+				} else if (this.touchType == 'current'){
+
+					this.touchCurrent = (newTouces.pageX - oldTouces.pageX) * this.duration / 250 / this.currentSen + this.oldValue[touchType] * 1
+					if (this.platform == 'ios' && this.fullScreen) {
+						this.touchCurrent = this.direction / -90 * (newTouces.pageY - oldTouces.pageY) * this.duration / 250 / this.currentSen + this.oldValue[touchType] * 1
+					}
+
+					this.touchCurrent = this.touchCurrent > this.duration ? this.duration : this.touchCurrent
+					this.touchCurrent = this.touchCurrent < 0 ? 0 : this.touchCurrent
+					// 相等时重置oldTouces
+					if (this.touchCurrent == this.oldValue[touchType]) this.oldTouces = newTouces
+				}
+
+			},
+			// 结束触摸
+			videoTouchEnd(e) {
+				if (this.touchType == 'current') {
+					this.current = this.touchCurrent
+					videoCtx.seek(this.current)
+				} else if (!this.touchType) {
+					if (dblCount == 1 || dblCount == 0) dblCount++
+
+					if (dblCount == 1) {
+						setTimeout(() => {
+							// 单击
+							if (dblCount == 1) this.clickVideo()
+							// 双击
+							if (dblCount == 2) this.videoPlay()
+							dblCount = 0
+						}, 250);
+					}
+				}
+				this.touchType = null
+			},
+			changeScreen() {
+				this.fullScreen = !this.fullScreen
+				this.$emit('fullscreenchange', this.fullScreen)
+			},
+			getLevel() {
+				let promise = new Promise((resolve, reject) => {
+					//#ifdef APP-PLUS-NVUE
+					if (this.platform == 'android') {
+						// 注意，安卓需要配置下manifest.json文件，打开后，进入模块权限配置，在右侧的Android权限设置里勾选上android.permission.BATTERY_STATS
+						var main = plus.android.runtimeMainActivity();
+						var Intent = plus.android.importClass('android.content.Intent');
+						var recevier = plus.android.implements('io.dcloud.feature.internal.reflect.BroadcastReceiver', {
+						        onReceive: function(context, intent) {
+						        var action = intent.getAction();
+						        if (action == Intent.ACTION_BATTERY_CHANGED) {
+						            let level   = intent.getIntExtra("level", 0); // 电量
+						            var voltage = intent.getIntExtra("voltage", 0); // 电池电压
+						            var temperature = intent.getIntExtra("temperature", 0); // 电池温度
+									resolve(level / 100)
+						        }
+						     }
+						 });
+						var IntentFilter = plus.android.importClass('android.content.IntentFilter');
+						var filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+						main.registerReceiver(recevier, filter);
+					} else if (this.platform == 'ios') {
+						var UIDevice = plus.ios.import("UIDevice");
+						var dev = UIDevice.currentDevice();
+						if (!dev.isBatteryMonitoringEnabled()) {
+						    dev.setBatteryMonitoringEnabled(true);
+						}
+						let level =dev.batteryLevel();
+
+						resolve(level)
+					}
+					//#endif
+					//#ifdef MP-WEIXIN
+					wx.getBatteryInfo({
+						success: function(e) {
+							resolve(e.level)
+						}
+					})
+					//#endif
+				})
+				promise.then(res => {
+					this.level = res
+				})
+			},
+			formatSeconds(a,type) {
+				var hh = parseInt(a / 3600);
+				var mm = parseInt((a - hh * 3600) / 60);
+				if (mm < 10) mm = "0" + mm;
+				var ss = parseInt((a - hh * 3600) % 60);
+				if (ss < 10) ss = "0" + ss;
+				if (hh < 10) hh = hh == '0' ? '' : `0${hh}:`;
+				var length = hh  + mm + ":" + ss;
+				if (a >= 0) {
+					return length;
+				} else {
+					return "00:00";
+				}
+			},
+			getNowTime() {
+				var now = new Date();
+				var hh = now.getHours();            // 时
+				if (hh < 10) hh = "0" + hh;
+				var mm = now.getMinutes();          // 分
+				if (mm < 10) mm = "0" + mm;
+				return `${hh}:${mm}`;
+			},
+		},
+		watch: {
+			playFirst: {
+				handler: async function(newVal, oldVal) {
+					if (oldVal) {
+						remeber = true
+						await this.promise(5000)
+						remeber = false
+					}
+
+				}
+			},
+			gDuration: {
+				immediate: true,
+				handler(newVal, oldVal) {
+					this.duration = newVal
+				}
+			},
+			srcList: {
+				immediate: true,
+				handler: async function(newVal, oldVal) {
+          if (!newVal || newVal.length < 1) {
+            return;
+          }
+
+					await this.promise(500)
+					isSeeked = false;
+					if (typeof newVal == 'string') {
+						this.src = newVal
+					} else {
+						this.src = newVal[0].playurl
+						switch(newVal[0].definition) {
+              case 'OD':
+                this.srcTitle = '原画';
+                break;
+              case 'FD':
+                this.srcTitle = '流畅';
+                break;
+              case 'LD':
+                this.srcTitle = '标清';
+                break;
+              case 'SD':
+                this.srcTitle = '高清';
+                break;
+              case 'HD':
+                this.srcTitle = '超清';
+                break;
+              default:
+                break;
+            }
+					}
+					// issue 2566 切换视频小节不播放且没有加载动画
+					// if (this.playFirst && this.autoplay) await this.changeSrc();
+					await this.changeSrc();
+				},
+			},
+			showControls: {
+				immediate: true,
+				handler: async function(newVal) {
+					if (newVal && this.fullScreen) {
+						this.nowTime = this.getNowTime()
+						this.getLevel()
+						await this.promise()
+						this.animateControls(0, this.$refs.controlsTop)
+						this.animateControls(1, this.$refs.controlsBtm)
+					}
+				}
+			},
+			async direction(newVal) {
+				if (this.fullScreen && !this.lock) {
+					videoCtx.exitFullScreen()
+					await this.promise(1000)
+					videoCtx.requestFullScreen({direction: newVal})
+				}
+			},
+		},
+		computed: {
+			rememberCurrent() {
+				return this.formatSeconds(this.initialTime)
+			},
+			lastDuration() {
+				return this.formatSeconds(this.duration)
+			},
+			currentDuration() {
+				return this.formatSeconds(this.current)
+			},
+			touchCurrentDuration() {
+				return this.formatSeconds(this.touchCurrent)
+			},
+			// 小屏时进度条长度
+			sliderWidth() {
+				if (this.duration >= 3600) {
+					return this.fullControlsHeigt - 190
+				} else {
+					return this.fullControlsHeigt - 160
+				}
+			}
+		},
+    filters: {
+      handleDefinition(definition) {
+        switch(definition) {
+          case 'OD':
+            return '原画';
+            break;
+          case 'FD':
+            return '流畅';
+            break;
+          case 'LD':
+            return '标清';
+            break;
+          case 'SD':
+            return '高清';
+            break;
+          case 'HD':
+            return '超清';
+            break;
+        }
+      },
+    }
+	}
+</script>
+
+<style scoped lang="scss">
+	@import "./android.scss";
+	@import "./ios.scss";
+	/* #ifndef APP-PLUS-NVUE */
+	@font-face {
+		font-family: "texticons";
+		src: url('~@/static/chunlei-video/text-icon.ttf') format('truetype');
+	}
+	/* #endif*/
+	.video-box {
+		height: 200px;
+	}
+	.margin-bright {
+		margin-right: 10px;
+	}
+	.bottom-right-rate {
+		flex-direction: row;
+		align-items: center;
+		padding: 0 10px 0 10px;
+		height: 32px;
+	}
+	.bottom-right-clear {
+		flex-direction: row;
+		align-items: center;
+		padding: 20px 0 20px 0;
+		height: 20px;
+	}
+	.bottom-right-clear-left {
+		padding-left: 10px;
+		height: 32px;
+	}
+	.bottom-right-clear-right {
+		padding-right: 10px;
+		height: 32px;
+	}
+	.bottom-right-zoom {
+		flex-direction: row;
+		align-items: center;
+		padding-left: 10px;
+		height: 32px;
+	}
+	.btn-bbox {
+		padding: 10px;
+	}
+	.btn-sbox {
+		padding: 5px;
+
+	}
+	.video {
+		flex:1;
+		justify-content: center;
+		align-items: center;
+		width: 750rpx;
+	}
+	.video-view {
+		justify-content: center;
+		align-items: center;
+		position: absolute;
+		z-index:999;
+	}
+	.sm-title {
+		font-size: 12px;
+		color: #fff;
+		/* #ifndef APP-PLUS-NVUE */
+		font-family: "texticons";
+		/* #endif*/
+	}
+	.set-view {
+		position: absolute;
+		top:0;
+		background-color: rgba(0,0,0,0.5);
+	}
+	.rate-set {
+		flex-direction: column;
+		padding: 40px 80px;
+		justify-content: flex-end;
+		background-color: rgba(0,0,0,0.6);
+	}
+	.power-view {
+		align-items: center;
+	}
+	.power-box {
+		flex-direction: row;
+		align-items: center;
+	}
+	.power-header {
+		height: 4px;
+		width: 2px;
+		background-color: #fff;
+	}
+	.power-body {
+		height: 9px;
+		width: 20px;
+		border-width: 1px;
+		border-color: #fff;
+		padding: 1px;
+		flex-direction: row;
+		justify-content: flex-end;
+	}
+	.power-level {
+		height: 5px;
+	}
+	.scroll-view {
+		flex-direction: row;
+	}
+	.more-set {
+		flex-direction: column;
+		padding: 40px 100px;
+	}
+	.more-row {
+		flex-direction: row;
+		padding: 0 20px;
+	}
+	.more-tap {
+		height: 1px;
+		opacity: 0.6;
+		background-color: #70A0A0;
+	}
+	.more-box {
+		justify-content: center;
+		align-items: center;
+		text-align: center;
+		height: 100px;
+		width: 120px;
+		margin-right: 20px;
+	}
+	.set-bottom {
+		flex-direction: row;
+	}
+	.set-box {
+		justify-content: center;
+		align-items: center;
+		margin-right: 20px;
+		height: 100px;
+		width: 100px;
+		background-color: rgba(94,162,162,0.2);
+	}
+	.solid-bottom {
+		border-bottom-width: 2px;
+	}
+	.controls-top {
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: center;
+		position: absolute;
+		padding: 0 40px 0 30px;
+		background-image: linear-gradient(to top , rgba(0,0,0,0) , rgba(0,0,0,0.8));
+		height: 40px;
+		transform: translateY(-40px);
+		top: 0;
+	}
+	.top-left {
+		flex-direction: row;
+		align-items: center;
+		font-size: 12px;
+		color: #fff;
+	}
+	.top-right {
+		flex-direction: row;
+		align-items: center;
+		font-size: 12px;
+		color: #fff;
+	}
+	.stop {
+		position: absolute;
+		padding: 10px;
+		background-color: rgba(0,0,0,0.6);
+		border-radius: 2px;
+	}
+	.rate {
+		position: absolute;
+		top: 0px;
+		width: 750rpx;
+		height: 160px;
+		flex-direction: column;
+		z-index: 101;
+	}
+	.current-view {
+		padding: 20rpx;
+		width: 300rpx;
+		height: 80px;
+		background-color: rgba(0,0,0,0.3);
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		border-radius: 5px;
+		position: absolute;
+		top: 30px;
+		left: 225rpx;
+	}
+	.fullCurrent-current {
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		position: absolute;
+		border-radius: 5px;
+		width: 150px;
+		height: 80px;
+		background-color: rgba(0,0,0,0.4);
+		top:60px;
+	}
+	.fullControls-bottom-left {
+		flex-direction: row;
+	}
+	.fullCurrent-bottom {
+		margin-top: 15px;
+		width: 110px;
+		background-color: rgba(255,255,255,0.3);
+		height: 5px;
+		overflow: hidden;
+	}
+	.current-bottom {
+		overflow:hidden;
+		margin-top: 15px;
+		width: 260rpx;
+		background-color: rgba(255,255,255,0.3);
+		height: 5px;
+	}
+	.current-progress {
+		background-color: rgba(255, 255, 255,0.7);
+		height: 5px;
+	}
+	.controls-view {
+		/* #ifndef APP-PLUS-NVUE */
+		width: 730rpx;
+		/* #endif */
+		/* #ifdef APP-PLUS-NVUE */
+		width: 750rpx;
+		/* #endif */
+		height: 40px;
+		position: absolute;
+		background-image:linear-gradient(to top , rgba(0,0,0,0.8) , rgba(0,0,0,0));
+		bottom: 0;
+		flex-direction: row;
+		align-items: center;
+		padding: 0 10px;
+	}
+	.remember-view {
+		position: absolute;
+		flex-direction: row;
+		justify-content: center;
+		align-items: center;
+		bottom: 50px;
+		left: 10px;
+		padding-right: 5px;
+		background-color: rgba(0,0,0,0.6);
+	}
+	.fullControls-remember {
+		position: absolute;
+		flex-direction: row;
+		justify-content: center;
+		align-items: center;
+		bottom: 130px;
+		left: 35px;
+		padding-right: 5px;
+		background-color: rgba(0,0,0,0.6);
+	}
+	.controls-view-top {
+		/* #ifndef APP-PLUS-NVUE */
+		width: 730rpx;
+		/* #endif */
+		/* #ifdef APP-PLUS-NVUE */
+		width: 750rpx;
+		/* #endif */
+		align-items: center;
+		position: absolute;
+		padding: 0 10px;
+		height: 40px;
+		top: 0;
+		flex-direction: row;
+	}
+	.fullControls-view {
+		position: absolute;
+		flex-direction: column;
+		align-items: center;
+		background-image: linear-gradient(to bottom , rgba(0,0,0,0) , rgba(0,0,0,0.8));
+		height: 110px;
+		transform: translateY(120px);
+		bottom: 0;
+		z-index: 99999;
+	}
+	.fullControls-top {
+		align-items: center;
+		flex-direction: row;
+		justify-content: space-between;
+		padding: 0 40px;
+		margin-bottom: -20px;
+		height: 20px;
+		flex: 1;
+	}
+	.fullControls-bottom {
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0 40px 0 30px;
+		height: 40px;
+	}
+	.fullControls-bottom-right {
+		flex-direction: row;
+		align-items: center;
+		height: 40px;
+	}
+	.iconfont {
+		font-family: iconfont;
+		font-size: 18px;
+		color: #fff;
+	}
+  .icon-zoom {
+    width: 18px;
+    height: 18px;
+  }
+	.margin-left {
+		margin-left: 10px;
+	}
+  .screen-count-down {
+		flex-direction: row;
+		justify-content: space-between;
+		position: absolute;
+    right: 20px;
+    bottom: 40px;
+	}
+	.full-count-down {
+		bottom: 110px;
+		right: 40px;
+	}
+	.cancel {
+		padding-left: 5px;
+    color: #0c73ef;
+	}
+
+</style>

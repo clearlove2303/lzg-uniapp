@@ -1,0 +1,168 @@
+<template>
+	<view class="modal-container" v-if="show" @click.stop='cancel(2)'>
+		<view class="modal-content">
+			<view class="modal-title" :class="{'modal-title-padding': !text}" v-if='title'>
+				<text class="modal-title-text">{{ title }}</text>
+			</view>
+			<view class="modal-article" v-if="text && textShow">
+				<text class="modal-article-text">{{ text }}</text>
+			</view>
+			<view class="modal-row">
+				<!-- 不显示取消按钮 -->
+				<view class="modal-col modal-col-first" hover-class="modal-hover" v-if="noCancel" @click='cancel'>
+					<text :style="cancelStyle" class="modal-row-text modal-row-text-left">{{ cancelText }}</text>
+				</view>
+				<view class="modal-col modal-confirm" hover-class="modal-hover" @click='confirm'>
+					<text :style="confirmStyle" class="modal-row-text">{{ confirmText }}</text>
+				</view>
+			</view>
+		</view>
+	</view>
+</template>
+
+<script>
+	export default{
+		name: 'modal',
+		props: {
+			title: {
+				type: String,
+				default: ''
+			},
+			text: {
+				type: String,
+				default: ''
+			},
+			noCancel: {
+				type: Boolean,
+				default: false
+			},
+			show: {
+				type: Boolean,
+				default: false
+			},
+			cancelText: {
+				type: String,
+				default: '取消'
+			},
+			cancelStyle: {
+				type: [String, Object]
+			},
+			confirmText: {
+				type: String,
+				default: '确定'
+			},
+			confirmStyle: {
+				type: [String, Object]
+			},
+			prevent: {
+				type: Boolean,
+				default: true
+			},
+			value: {
+				type: Boolean,
+				default: false
+			},
+      textShow: {
+        type: Boolean,
+        default: false
+      }
+		},
+		methods: {
+			confirm(){
+				this.$emit('confirm')
+				this.$emit('event')
+			},
+			cancel(type){
+				this.$emit('cancel')
+				this.$emit('event')
+			}
+		}
+	}
+</script>
+
+<style lang="scss">
+	$fontSizeLg: 16px;
+	$fontSizeSm: 14px;
+
+	.modal-container{
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 999;
+		align-items: center;
+		justify-content: center;
+		background-color: rgba(0, 0, 0, .6);
+	}
+	.modal-content{
+		width: 600rpx;
+		border-radius: 26rpx;
+		background-color: #ffffff;
+		overflow: hidden;
+	}
+	.modal-title{
+		padding-top: 30rpx;
+		padding-bottom: 30rpx;
+		padding-left: 30rpx;
+		padding-right: 30rpx;
+		text-align: center;
+		color: #000000;
+		font-size: $fontSizeLg;
+		font-weight: 700;
+	}
+	.modal-title-text{
+		text-align: center;
+		color: #000000;
+		font-size: $fontSizeLg;
+		font-weight: 700;
+	}
+	.modal-title-padding{
+		padding-bottom: 30rpx;
+	}
+	.modal-article{
+		padding-bottom: 30rpx;
+		padding-left: 30rpx;
+		padding-right: 30rpx;
+		font-size: $fontSizeSm;
+		color: #000000;
+		text-align: center;
+	}
+	.modal-article-text{
+		font-size: 28rpx;
+		color: #000000;
+		text-align: center;
+	}
+	.modal-row{
+        flex-direction: row;
+		font-size: $fontSizeLg;
+		color: #007aff;
+		border-top-width: 1px;
+		border-top-color: rgba(9, 20, 31, 0.13);
+		border-top-style: solid;
+	}
+	.modal-row-text-left {
+		color: #333;
+	}
+	.modal-row-text{
+		line-height: 100rpx;
+		text-align: center;
+		color: #3b8bfd;
+		font-size: 34rpx;
+	}
+	.modal-col{
+		flex: 1;
+   }
+
+	.modal-col-first{
+		border-right-color: rgba(9, 20, 31, 0.13);
+		border-right-width: 1px;
+		border-right-style: solid;
+	}
+	.modal-confirm{
+		color: #007aff;
+	}
+	.modal-hover{
+		background-color: #f2f2f2;
+	}
+</style>
